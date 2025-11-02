@@ -1,0 +1,24 @@
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+Inventronix	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+begin	KEYWORD2
+sendPayload	KEYWORD2
+setSchemaId	KEYWORD2
+setRetryAttempts	KEYWORD2
+setRetryDelay	KEYWORD2
+setVerboseLogging	KEYWORD2
+setDebugMode	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+INVENTRONIX_API_BASE_URL	LITERAL1
+INVENTRONIX_INGEST_ENDPOINT	LITERAL1
