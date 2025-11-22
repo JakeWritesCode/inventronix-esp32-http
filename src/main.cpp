@@ -60,7 +60,7 @@ void loop() {
     JsonDocument doc;
 
     // Example sensor data
-    doc["temperature"] = 23.5 + (random(0, 20) / 10.0);
+    doc["temperature"] = 23.5 + random(0, 10);
     doc["some_boolean"] = true;
     doc["a_string"] = "toast";
 

@@ -54,7 +54,7 @@ lib_deps =
 #define WIFI_SSID "your-wifi-ssid"
 #define WIFI_PASSWORD "your-wifi-password"
 
-// Inventronix credentials (from https://inventronix.io/projects)
+// Inventronix credentials (from https://inventronix.club/iot-relay/projects)
 #define PROJECT_ID "proj_abc123"
 #define API_KEY "key_xyz789"
 
@@ -215,7 +215,7 @@ while (WiFi.status() != WL_CONNECTED) {
 ```
 
 ### "Authentication failed" error
-Verify your PROJECT_ID and API_KEY are correct. Get them from: https://inventronix.io/projects
+Verify your PROJECT_ID and API_KEY are correct. Get them from: https://inventronix.club/iot-relay/projects
 
 ### Upload fails
 - Check USB cable connection

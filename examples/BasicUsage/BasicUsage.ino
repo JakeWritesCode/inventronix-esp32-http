@@ -9,7 +9,7 @@
  * Setup:
  * 1. Install ArduinoJson library (Tools -> Manage Libraries -> Search "ArduinoJson")
  * 2. Update WiFi credentials below
- * 3. Update PROJECT_ID and API_KEY from https://inventronix.io/projects
+ * 3. Update PROJECT_ID and API_KEY from https://inventronix.club/iot-relay/projects
  * 4. Upload to your board
  * 5. Open Serial Monitor (115200 baud) to see output
  */
@@ -22,7 +22,7 @@
 #define WIFI_SSID "your-wifi-ssid"
 #define WIFI_PASSWORD "your-wifi-password"
 
-// Inventronix credentials (get these from https://inventronix.io/projects)
+// Inventronix credentials (get these from https://inventronix.club/iot-relay/projects)
 #define PROJECT_ID "proj_abc123"
 #define API_KEY "key_xyz789"
 

@@ -163,7 +163,7 @@ void Inventronix::logError(int statusCode, const String& responseBody) {
                 Serial.println();
             }
             Serial.println("   💡 Fix your data or update the schema at:");
-            Serial.println("   https://inventronix.io/projects/" + _projectId + "/schemas");
+            Serial.println("   https://inventronix.club/iot-relay/projects/" + _projectId + "/schemas");
             break;
 
         case 401:
@@ -171,7 +171,7 @@ void Inventronix::logError(int statusCode, const String& responseBody) {
             Serial.println("   Your PROJECT_ID or API_KEY is incorrect");
             Serial.println();
             Serial.println("   💡 Check your credentials at:");
-            Serial.println("   https://inventronix.io/projects");
+            Serial.println("   https://inventronix.club/iot-relay");
             break;
 
         case 429:
@@ -179,7 +179,7 @@ void Inventronix::logError(int statusCode, const String& responseBody) {
             Serial.println("   Your project allows 6 requests/min");
             Serial.println();
             Serial.println("   💡 Upgrade at:");
-            Serial.println("   https://inventronix.io/pricing");
+            Serial.println("   https://inventronix.club/iot-relay");
             break;
 
         case 503:
@@ -205,7 +205,7 @@ void Inventronix::logSuccess() {
     if (!_verboseLogging) return;
 
     Serial.println("✅ Data sent successfully!");
-    Serial.println("   🌐 View your data: https://inventronix.io/projects/" + _projectId + "/data");
+    Serial.println("   🌐 View your data: https://inventronix.club/iot-relay/projects/" + _projectId + "/payloads");
     Serial.println();
 }
 
