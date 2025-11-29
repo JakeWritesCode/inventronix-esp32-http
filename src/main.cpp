@@ -1,35 +1,47 @@
 /**
- * Main application file for testing the Inventronix library
- * This is a simple test sketch to verify the library compiles correctly
+ * Hydroponic Controller Example
+ *
+ * Demonstrates:
+ * - Toggle commands (heater on/off)
+ * - Pulse commands (nutrient pump)
+ * - Reporting actual state back to server
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <Inventronix.h>
 #include <ArduinoJson.h>
+#include "DHT.h"
 
-// WiFi credentials (update these for actual testing)
+// WiFi credentials
 #define WIFI_SSID "26 The Maltings"
 #define WIFI_PASSWORD "BrunoTheDog"
 
 // Inventronix credentials
-#define PROJECT_ID "748594a3-c402-4c46-9b76-2412983f640d"
-#define API_KEY "e2d5427c-917f-45f3-acb1-58cd0175dc07"
+#define PROJECT_ID "e139eeb2-09aa-489a-96df-34d8465fdb3e"
+#define API_KEY "1a6b2728-32a5-4905-89a8-674e8de9901b"
 
-// Create Inventronix client
+// Pin definitions
+#define HEATER_PIN 3
+#define PUMP_PIN 5
+#define DHT_PIN 4
+
+// Timing
+#define PUMP_PULSE_MS 5000  // 5 second pump pulse
+
+// Create instances
 Inventronix inventronix;
+DHT dht11(DHT_PIN, DHT11);
+
+// Actual hardware state (reported in payloads)
+int heaterState = 0;
 
 void setup() {
-    // Initialize serial communication
     Serial.begin(115200);
     delay(1000);
 
-    // Turn on verbose logging to help with debugging!
+    dht11.begin();
     inventronix.setVerboseLogging(true);
-
-    Serial.println("\n\n=================================");
-    Serial.println("Inventronix Library Test");
-    Serial.println("=================================\n");
 
     // Connect to WiFi
     Serial.print("Connecting to WiFi");
@@ -49,41 +61,93 @@ void setup() {
     } else {
         Serial.println("\nWiFi connection failed");
     }
-    Serial.println();
 
     // Initialize Inventronix
     inventronix.begin(PROJECT_ID, API_KEY);
+
+    // =========================================
+    // REGISTER COMMAND HANDLERS
+    // =========================================
+
+    // Toggle command: heater_on
+    // Rule example: "If avg temp < 18 last 5 mins AND heater_on == 0, turn heater on"
+    inventronix.onCommand("heater_on", [](JsonObject args) {
+        Serial.println("🔥 Heater ON");
+        digitalWrite(HEATER_PIN, HIGH);
+        heaterState = 1;
+    });
+
+    // Toggle command: heater_off
+    inventronix.onCommand("heater_off", [](JsonObject args) {
+        Serial.println("❄️ Heater OFF");
+        digitalWrite(HEATER_PIN, LOW);
+        heaterState = 0;
+    });
+
+    // Pulse command: pump_nutrients
+    // Rule example: "If avg EC < 1200 last 30 mins, pump nutrients"
+    // Duration hardcoded here - server just sends "pump_nutrients", we handle timing
+    inventronix.onPulse("pump_nutrients", PUMP_PIN, PUMP_PULSE_MS);
+
+    // Alternative: duration from server args
+    // inventronix.onPulse("pump_nutrients", PUMP_PIN);  // pulls "duration" from command args
+
+    // Alternative: custom callbacks for complex logic
+    // inventronix.onPulse("pump_nutrients", PUMP_PULSE_MS,
+    //     []() {
+    //         Serial.println("💧 Pump starting");
+    //         digitalWrite(PUMP_PIN, HIGH);
+    //     },
+    //     []() {
+    //         Serial.println("💧 Pump stopping");
+    //         digitalWrite(PUMP_PIN, LOW);
+    //     }
+    // );
+
+    // Setup pins
+    pinMode(HEATER_PIN, OUTPUT);
+    digitalWrite(HEATER_PIN, LOW);
 }
 
 void loop() {
-    // Create JSON payload
+    // Read sensors
+    float humidity = dht11.readHumidity();
+    float temperature = dht11.readTemperature();
+
+    if (isnan(humidity) || isnan(temperature)) {
+        Serial.println("DHT read failed, skipping...");
+        delay(2000);
+        return;
+    }
+
+    Serial.print("Temp: ");
+    Serial.print(temperature);
+    Serial.print("°C  Humidity: ");
+    Serial.print(humidity);
+    Serial.println("%");
+
+    // Build payload - report ACTUAL hardware state
     JsonDocument doc;
+    doc["temperature"] = temperature;
+    doc["humidity"] = humidity;
+    doc["heater_on"] = heaterState;
+    doc["pump_on"] = inventronix.isPulsing("pump_nutrients") ? 1 : 0;
 
-    // Example sensor data
-    doc["temperature"] = 23.5 + random(0, 10);
-    doc["some_boolean"] = true;
-    doc["a_string"] = "toast";
-
-
-    // Serialize to string
     String jsonPayload;
     serializeJson(doc, jsonPayload);
 
-    Serial.println("Sending data...");
-    Serial.print("Payload: ");
+    Serial.print("Sending: ");
     Serial.println(jsonPayload);
-    Serial.println();
 
-    // Send to Inventronix (will fail without valid credentials)
+    // Send payload - commands are automatically dispatched to handlers
     bool success = inventronix.sendPayload(jsonPayload.c_str());
 
     if (success) {
-        Serial.println("Successfully sent data!\n");
+        Serial.println("Data sent successfully\n");
     } else {
-        Serial.println("Failed to send data (expected without valid WiFi/credentials)\n");
+        Serial.println("Failed to send data\n");
     }
 
-    // Wait 60 seconds
-    Serial.println("Waiting 10 seconds...\n");
+    // 10 second loop - adjust based on your rate limit
     delay(10000);
 }

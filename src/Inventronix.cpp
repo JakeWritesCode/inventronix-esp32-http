@@ -2,18 +2,42 @@
 #include "Inventronix.h"
 #include <WiFiClientSecure.h>
 
+// Static instance pointer for Ticker callbacks
+Inventronix* Inventronix::_instance = nullptr;
+
+// Static callback for Ticker (workaround for no lambda capture support)
+void Inventronix::pulseOffCallback(int pulseIndex) {
+    if (_instance != nullptr) {
+        _instance->handlePulseOff(pulseIndex);
+    }
+}
+
 // Constructor
 Inventronix::Inventronix() {
     _retryAttempts = INVENTRONIX_DEFAULT_RETRY_ATTEMPTS;
     _retryDelay = INVENTRONIX_DEFAULT_RETRY_DELAY;
     _verboseLogging = INVENTRONIX_VERBOSE_LOGGING;
     _debugMode = false;
+    _commandCount = 0;
+    _pulseCount = 0;
+
+    // Initialize command registry
+    for (int i = 0; i < INVENTRONIX_MAX_COMMANDS; i++) {
+        _commands[i].registered = false;
+    }
+    for (int i = 0; i < INVENTRONIX_MAX_PULSES; i++) {
+        _pulses[i].registered = false;
+        _pulses[i].active = false;
+    }
 }
 
 // Initialize the library
 void Inventronix::begin(const char* projectId, const char* apiKey) {
     _projectId = String(projectId);  // Convert C-string to Arduino String
     _apiKey = String(apiKey);
+
+    // Store instance pointer for static Ticker callbacks
+    _instance = this;
 
     if (_verboseLogging) {
         Serial.println("✅ Inventronix initialized");
@@ -74,6 +98,7 @@ bool Inventronix::sendPayload(const char* jsonPayload) {
         // Success! (any 2xx status code)
         if (statusCode >= 200 && statusCode < 300) {
             logSuccess();
+            processCommands(responseBody);
             return true;
         }
 
@@ -241,4 +266,243 @@ String Inventronix::buildURL() {
     }
 
     return url;
+}
+
+// ============================================
+// COMMAND HANDLING
+// ============================================
+
+// Register a toggle-style command handler
+void Inventronix::onCommand(const char* commandName, CommandCallback callback) {
+    if (_commandCount >= INVENTRONIX_MAX_COMMANDS) {
+        if (_verboseLogging) {
+            Serial.println("⚠️  Max commands registered, ignoring: " + String(commandName));
+        }
+        return;
+    }
+
+    _commands[_commandCount].name = String(commandName);
+    _commands[_commandCount].callback = callback;
+    _commands[_commandCount].registered = true;
+    _commandCount++;
+
+    if (_verboseLogging) {
+        Serial.println("📝 Registered command: " + String(commandName));
+    }
+}
+
+// Register a pulse command - simple pin-based version
+void Inventronix::onPulse(const char* commandName, int pin, unsigned long durationMs) {
+    if (_pulseCount >= INVENTRONIX_MAX_PULSES) {
+        if (_verboseLogging) {
+            Serial.println("⚠️  Max pulse commands registered, ignoring: " + String(commandName));
+        }
+        return;
+    }
+
+    _pulses[_pulseCount].name = String(commandName);
+    _pulses[_pulseCount].pin = pin;
+    _pulses[_pulseCount].durationMs = durationMs;  // 0 = pull from args
+    _pulses[_pulseCount].onCallback = nullptr;
+    _pulses[_pulseCount].offCallback = nullptr;
+    _pulses[_pulseCount].active = false;
+    _pulses[_pulseCount].registered = true;
+
+    // Ensure pin is configured as output
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, LOW);
+
+    _pulseCount++;
+
+    if (_verboseLogging) {
+        Serial.print("📝 Registered pulse command: " + String(commandName));
+        Serial.print(" (pin ");
+        Serial.print(pin);
+        if (durationMs > 0) {
+            Serial.print(", ");
+            Serial.print(durationMs);
+            Serial.print("ms");
+        } else {
+            Serial.print(", duration from args");
+        }
+        Serial.println(")");
+    }
+}
+
+// Register a pulse command - callback-based version
+void Inventronix::onPulse(const char* commandName, unsigned long durationMs,
+                          PulseOnCallback onCb, PulseOffCallback offCb) {
+    if (_pulseCount >= INVENTRONIX_MAX_PULSES) {
+        if (_verboseLogging) {
+            Serial.println("⚠️  Max pulse commands registered, ignoring: " + String(commandName));
+        }
+        return;
+    }
+
+    _pulses[_pulseCount].name = String(commandName);
+    _pulses[_pulseCount].pin = -1;  // Using callbacks, not direct pin
+    _pulses[_pulseCount].durationMs = durationMs;
+    _pulses[_pulseCount].onCallback = onCb;
+    _pulses[_pulseCount].offCallback = offCb;
+    _pulses[_pulseCount].active = false;
+    _pulses[_pulseCount].registered = true;
+    _pulseCount++;
+
+    if (_verboseLogging) {
+        Serial.print("📝 Registered pulse command: " + String(commandName));
+        Serial.print(" (callback, ");
+        if (durationMs > 0) {
+            Serial.print(durationMs);
+            Serial.print("ms");
+        } else {
+            Serial.print("duration from args");
+        }
+        Serial.println(")");
+    }
+}
+
+// Check if a pulse command is currently active
+bool Inventronix::isPulsing(const char* commandName) {
+    for (int i = 0; i < _pulseCount; i++) {
+        if (_pulses[i].registered && _pulses[i].name == commandName) {
+            return _pulses[i].active;
+        }
+    }
+    return false;
+}
+
+// Process commands from the ingest response
+void Inventronix::processCommands(const String& responseBody) {
+    if (responseBody.length() == 0) return;
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, responseBody);
+
+    if (error) {
+        if (_debugMode) {
+            logDebug("Failed to parse response JSON: " + String(error.c_str()));
+        }
+        return;
+    }
+
+    // Check for commands array
+    if (!doc["commands"].is<JsonArray>()) {
+        return;  // No commands, that's fine
+    }
+
+    JsonArray commands = doc["commands"].as<JsonArray>();
+    int commandCount = commands.size();
+
+    if (commandCount == 0) return;
+
+    if (_verboseLogging) {
+        Serial.printf("📨 Received %d command(s)\n", commandCount);
+    }
+
+    for (JsonObject cmd : commands) {
+        const char* command = cmd["command"] | "";
+        const char* executionId = cmd["execution_id"] | "";
+        JsonObject args = cmd["arguments"].as<JsonObject>();
+
+        if (strlen(command) > 0) {
+            dispatchCommand(command, args, executionId);
+        }
+    }
+}
+
+// Dispatch a command to the appropriate handler
+void Inventronix::dispatchCommand(const char* command, JsonObject args, const char* executionId) {
+    if (_verboseLogging) {
+        Serial.print("⚡ Dispatching command: ");
+        Serial.println(command);
+    }
+
+    // Check toggle commands first
+    for (int i = 0; i < _commandCount; i++) {
+        if (_commands[i].registered && _commands[i].name == command) {
+            if (_debugMode) {
+                logDebug("Matched toggle command handler");
+            }
+            _commands[i].callback(args);
+
+            // TODO: Send ack to server when endpoint exists
+            // ackExecution(executionId, true);
+            return;
+        }
+    }
+
+    // Check pulse commands
+    for (int i = 0; i < _pulseCount; i++) {
+        if (_pulses[i].registered && _pulses[i].name == command) {
+            // Ignore if already pulsing (spam protection)
+            if (_pulses[i].active) {
+                if (_verboseLogging) {
+                    Serial.println("   ⏭️  Already pulsing, ignoring");
+                }
+                return;
+            }
+
+            // Determine duration: use registered value, or pull from args
+            unsigned long duration = _pulses[i].durationMs;
+            if (duration == 0) {
+                // Try to get from command arguments
+                duration = args["duration"] | args["duration_ms"] | 0UL;
+                if (duration == 0) {
+                    if (_verboseLogging) {
+                        Serial.println("   ❌ No duration specified (set in onPulse or send in args)");
+                    }
+                    return;
+                }
+            }
+
+            if (_verboseLogging) {
+                Serial.printf("   🔄 Pulsing for %lums\n", duration);
+            }
+
+            // Start the pulse
+            _pulses[i].active = true;
+
+            if (_pulses[i].pin >= 0) {
+                // Pin-based pulse
+                digitalWrite(_pulses[i].pin, HIGH);
+            } else if (_pulses[i].onCallback) {
+                // Callback-based pulse
+                _pulses[i].onCallback();
+            }
+
+            // Schedule the off using Ticker with static callback
+            _pulses[i].ticker.once_ms(duration, pulseOffCallback, i);
+
+            // TODO: Send ack to server when endpoint exists
+            // ackExecution(executionId, true);
+            return;
+        }
+    }
+
+    // No handler found
+    if (_verboseLogging) {
+        Serial.print("   ⚠️  No handler registered for command: ");
+        Serial.println(command);
+    }
+}
+
+// Handle pulse off (called by Ticker)
+void Inventronix::handlePulseOff(int pulseIndex) {
+    if (pulseIndex < 0 || pulseIndex >= _pulseCount) return;
+    if (!_pulses[pulseIndex].active) return;
+
+    if (_verboseLogging) {
+        Serial.print("⏹️  Pulse complete: ");
+        Serial.println(_pulses[pulseIndex].name);
+    }
+
+    if (_pulses[pulseIndex].pin >= 0) {
+        // Pin-based - turn off
+        digitalWrite(_pulses[pulseIndex].pin, LOW);
+    } else if (_pulses[pulseIndex].offCallback) {
+        // Callback-based - call off callback
+        _pulses[pulseIndex].offCallback();
+    }
+
+    _pulses[pulseIndex].active = false;
 }
