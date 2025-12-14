@@ -1,0 +1,117 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <Inventronix.h>
+#include <ArduinoJson.h>
+
+// WiFi credentials
+#define WIFI_SSID "26 The Maltings"
+#define WIFI_PASSWORD "BrunoTheDog"
+
+// Inventronix credentials
+#define PROJECT_ID "7be5227e-b3ea-400a-902f-349a63fb1ba2"
+#define API_KEY "b56081f6-64ea-4b82-b4be-55ee6d77d40b"
+
+#define ledPin 1
+#define moistPin 3
+#define readingMax 3850
+#define readingMin 1400
+#define SLEEP_MINUTES 5
+#define uS_TO_S_FACTOR 1000000ULL
+
+Inventronix inventronix;
+
+void setup() {
+    Serial.begin(115200);
+    pinMode(ledPin, OUTPUT);
+    pinMode(moistPin, INPUT);
+    digitalWrite(ledPin, LOW);  // LED off to save power
+
+    // Connect to WiFi
+    Serial.print("Connecting to WiFi");
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    int timeout = 0;
+    while (WiFi.status() != WL_CONNECTED && timeout < 20) {
+        delay(500);
+        Serial.print(".");
+        timeout++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi connected");
+        Serial.print("   IP address: ");
+        Serial.println(WiFi.localIP());
+    } else {
+        Serial.println("\nWiFi connection failed");
+    }
+
+    inventronix.begin(PROJECT_ID, API_KEY);
+}
+
+int averageRead(int pin) {
+    // take a reading, pause and repear 5 times, take an average of those 5, return average reading
+    int total = 0;
+    for (int count=0; count <5; count++) {
+        int analogValue = analogRead(pin);
+        total += analogValue;
+        delay(10);
+    }
+    return total / 5;
+}
+
+int convertToPercentage(int reading) {
+    //take one reading, minus bottom number 1300, divide by (top number 4000 minus bottom number 1300)
+    int readingRectified = reading - readingMin;
+    float decimalPercentage  = (float)readingRectified / (readingMax - readingMin);
+    return decimalPercentage * 100;
+}
+
+template <typename T>
+    void debugPrint(String name, T val) {
+    Serial.print(name);
+    Serial.print(": ");
+    Serial.println(val);
+}
+
+void goToSleep() {
+    Serial.println("Going to sleep...");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    esp_sleep_enable_timer_wakeup(SLEEP_MINUTES * 60 * uS_TO_S_FACTOR);
+    esp_deep_sleep_start();
+}
+
+void flashLed(float time) {
+    digitalWrite(ledPin, HIGH);
+    delay(time);
+    digitalWrite(ledPin, LOW);
+    delay(time);
+}
+
+void loop() {
+    int moistPinValue = averageRead(moistPin);
+    int moistPinPercentage = convertToPercentage(moistPinValue);
+    Serial.print("The reading is:");
+    Serial.println(moistPinPercentage);
+
+    JsonDocument doc;
+    doc["dryness"] = moistPinPercentage;
+    String jsonPayload;
+    serializeJson(doc, jsonPayload);
+    bool success = inventronix.sendPayload(jsonPayload.c_str());
+
+    if (success) {
+        Serial.println("Data sent successfully");
+    } else {
+        Serial.println("Failed to send data");
+    }
+
+    flashLed(200);
+    flashLed(200);
+    flashLed(200);
+    goToSleep();
+}
+
+
+
+

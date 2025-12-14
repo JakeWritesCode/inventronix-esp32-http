@@ -22,7 +22,7 @@
 #define API_KEY "1a6b2728-32a5-4905-89a8-674e8de9901b"
 
 // Pin definitions
-#define HEATER_PIN 3
+#define HEATER_PIN 7
 #define PUMP_PIN 5
 #define DHT_PIN 4
 
@@ -84,26 +84,6 @@ void setup() {
         heaterState = 0;
     });
 
-    // Pulse command: pump_nutrients
-    // Rule example: "If avg EC < 1200 last 30 mins, pump nutrients"
-    // Duration hardcoded here - server just sends "pump_nutrients", we handle timing
-    inventronix.onPulse("pump_nutrients", PUMP_PIN, PUMP_PULSE_MS);
-
-    // Alternative: duration from server args
-    // inventronix.onPulse("pump_nutrients", PUMP_PIN);  // pulls "duration" from command args
-
-    // Alternative: custom callbacks for complex logic
-    // inventronix.onPulse("pump_nutrients", PUMP_PULSE_MS,
-    //     []() {
-    //         Serial.println("💧 Pump starting");
-    //         digitalWrite(PUMP_PIN, HIGH);
-    //     },
-    //     []() {
-    //         Serial.println("💧 Pump stopping");
-    //         digitalWrite(PUMP_PIN, LOW);
-    //     }
-    // );
-
     // Setup pins
     pinMode(HEATER_PIN, OUTPUT);
     digitalWrite(HEATER_PIN, LOW);
@@ -130,8 +110,11 @@ void loop() {
     JsonDocument doc;
     doc["temperature"] = temperature;
     doc["humidity"] = humidity;
-    doc["heater_on"] = heaterState;
-    doc["pump_on"] = inventronix.isPulsing("pump_nutrients") ? 1 : 0;
+	if (digitalRead(HEATER_PIN) == HIGH) {
+		doc["heater_on"] = true;
+	} else {
+		doc["heater_on"] = false;
+	}
 
     String jsonPayload;
     serializeJson(doc, jsonPayload);

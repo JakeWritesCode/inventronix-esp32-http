@@ -15,6 +15,9 @@ setRetryAttempts	KEYWORD2
 setRetryDelay	KEYWORD2
 setVerboseLogging	KEYWORD2
 setDebugMode	KEYWORD2
+onCommand	KEYWORD2
+onPulse	KEYWORD2
+isPulsing	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)

@@ -1,15 +1,16 @@
 # Inventronix Arduino Library
 
-Dead simple IoT data ingestion for ESP32-C3 boards.
+Dead simple IoT data ingestion and device control for ESP32-C3 boards.
 
 ## Features
 
 - Simple, beginner-friendly API
+- **Command handling** - Receive and execute commands from the cloud
+- **Pulse commands** - Non-blocking timed actions (pumps, buzzers, etc.)
 - Automatic retry logic with exponential backoff
 - Helpful error messages with debugging tips
 - Built-in WiFi connection checking
 - Support for schema-based validation
-- Type-safe code generation support (coming soon)
 
 ## Hardware Requirements
 
@@ -75,7 +76,7 @@ void setup() {
 
 void loop() {
     // Create JSON payload
-    StaticJsonDocument<200> doc;
+    JsonDocument doc;
     doc["temperature"] = 23.5;
     doc["humidity"] = 65.2;
 
@@ -92,6 +93,94 @@ void loop() {
     delay(60000);  // Wait 1 minute
 }
 ```
+
+## Receiving Commands
+
+Commands are triggered by rules you configure in the Inventronix dashboard. When conditions are met (e.g., "temperature > 30"), the server queues commands that your device receives on the next `sendPayload()` call.
+
+### Toggle Commands
+
+For on/off controls like heaters, lights, or relays:
+
+```cpp
+int heaterState = 0;  // Track actual hardware state
+
+void setup() {
+    // ... WiFi setup ...
+    inventronix.begin(PROJECT_ID, API_KEY);
+
+    // Register command handlers
+    inventronix.onCommand("heater_on", [](JsonObject args) {
+        digitalWrite(HEATER_PIN, HIGH);
+        heaterState = 1;
+    });
+
+    inventronix.onCommand("heater_off", [](JsonObject args) {
+        digitalWrite(HEATER_PIN, LOW);
+        heaterState = 0;
+    });
+}
+
+void loop() {
+    JsonDocument doc;
+    doc["temperature"] = readTemp();
+    doc["heater_on"] = heaterState;  // Report actual state
+
+    String json;
+    serializeJson(doc, json);
+    inventronix.sendPayload(json.c_str());  // Commands auto-dispatch
+
+    delay(10000);
+}
+```
+
+### Pulse Commands
+
+For momentary actions like pumps, buzzers, or motors that need to run for a set duration then stop automatically. **Non-blocking** - uses hardware timers so your loop keeps running.
+
+```cpp
+#define PUMP_PIN 5
+
+void setup() {
+    // ... WiFi setup ...
+    inventronix.begin(PROJECT_ID, API_KEY);
+
+    // Simple: pulse pin HIGH for 5 seconds
+    inventronix.onPulse("pump_nutrients", PUMP_PIN, 5000);
+}
+
+void loop() {
+    JsonDocument doc;
+    doc["ec_level"] = readEC();
+    doc["pump_on"] = inventronix.isPulsing("pump_nutrients") ? 1 : 0;
+
+    String json;
+    serializeJson(doc, json);
+    inventronix.sendPayload(json.c_str());
+
+    delay(10000);
+}
+```
+
+**Duration from server:** Omit the duration to pull it from the command's `arguments.duration`:
+
+```cpp
+// Server sends: {"command": "pump_nutrients", "arguments": {"duration": 3000}}
+inventronix.onPulse("pump_nutrients", PUMP_PIN);  // Uses args.duration
+```
+
+**Custom callbacks:** For complex logic:
+
+```cpp
+inventronix.onPulse("dispense", 5000,
+    []() { digitalWrite(PUMP_PIN, HIGH); Serial.println("Pump ON"); },
+    []() { digitalWrite(PUMP_PIN, LOW); Serial.println("Pump OFF"); }
+);
+```
+
+### Spam Protection
+
+If a pulse command fires while already pulsing, it's ignored. This prevents issues when rules trigger faster than the action completes.
 
 ## API Reference
 
@@ -156,6 +245,87 @@ Set the schema ID for validation (optional).
 inventronix.setSchemaId("schema_xyz");
 ```
 
+### onCommand()
+
+```cpp
+void onCommand(const char* commandName, CommandCallback callback)
+```
+
+Register a handler for toggle-style commands.
+
+**Parameters:**
+- `commandName`: The command name to listen for (matches `command` field from server)
+- `callback`: Function called when command received, signature: `void(JsonObject args)`
+
+**Example:**
+```cpp
+inventronix.onCommand("light_on", [](JsonObject args) {
+    int brightness = args["brightness"] | 100;  // Default 100 if not provided
+    analogWrite(LED_PIN, brightness);
+});
+```
+
+### onPulse() - Pin-based
+
+```cpp
+void onPulse(const char* commandName, int pin, unsigned long durationMs = 0)
+```
+
+Register a pulse command that toggles a pin HIGH for a duration, then LOW.
+
+**Parameters:**
+- `commandName`: The command name to listen for
+- `pin`: GPIO pin to pulse (automatically configured as OUTPUT)
+- `durationMs`: Pulse duration in milliseconds. If 0, pulls from `args.duration`
+
+**Example:**
+```cpp
+inventronix.onPulse("buzzer_alert", BUZZER_PIN, 1000);  // 1 second beep
+```
+
+### onPulse() - Callback-based
+
+```cpp
+void onPulse(const char* commandName, unsigned long durationMs,
+             PulseOnCallback onCb, PulseOffCallback offCb)
+```
+
+Register a pulse command with custom on/off callbacks.
+
+**Parameters:**
+- `commandName`: The command name to listen for
+- `durationMs`: Duration between on and off callbacks. If 0, pulls from `args.duration`
+- `onCb`: Function called when pulse starts
+- `offCb`: Function called when pulse ends
+
+**Example:**
+```cpp
+inventronix.onPulse("motor_jog", 2000,
+    []() { motor.forward(); },
+    []() { motor.stop(); }
+);
+```
+
+### isPulsing()
+
+```cpp
+bool isPulsing(const char* commandName)
+```
+
+Check if a pulse command is currently active.
+
+**Parameters:**
+- `commandName`: The pulse command name to check
+
+**Returns:**
+- `true` if the pulse is currently running
+- `false` if not pulsing or command not found
+
+**Example:**
+```cpp
+doc["pump_active"] = inventronix.isPulsing("pump_nutrients") ? 1 : 0;
+```
+
 ### Configuration Methods
 
 ```cpp
@@ -200,7 +370,10 @@ Temporary server issues. The library will automatically retry.
 
 ## Examples
 
-See the `examples/BasicUsage/BasicUsage.ino` file for a complete working example.
+See `src/main.cpp` for a complete hydroponic controller example with:
+- Temperature/humidity monitoring
+- Toggle commands (heater on/off)
+- Pulse commands (nutrient pump)
 
 ## Troubleshooting
 
@@ -228,7 +401,8 @@ The library is designed for embedded systems with limited memory:
 
 - Uses efficient C-style strings for function parameters
 - Minimal heap allocation
-- Typical RAM usage: ~2-3KB
+- Up to 16 toggle commands + 8 pulse commands (configurable in `Inventronix.h`)
+- Typical usage: ~12% RAM, ~68% Flash on ESP32-C3
 
 ## License
 

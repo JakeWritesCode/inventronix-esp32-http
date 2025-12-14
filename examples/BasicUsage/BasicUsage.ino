@@ -64,14 +64,12 @@ void setup() {
 }
 
 void loop() {
-    // Create JSON payload manually
-    // (In production, you'd use code-generated functions)
-    StaticJsonDocument<200> doc;
+    // Create JSON payload
+    JsonDocument doc;
 
     // Example: Temperature sensor data
     doc["temperature"] = 23.5;
     doc["humidity"] = 65.2;
-    doc["timestamp"] = millis();
 
     // Serialize to string
     String jsonPayload;
