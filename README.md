@@ -22,6 +22,7 @@ Dead simple IoT data ingestion and device control for ESP32-C3 boards.
 
 - Arduino IDE 1.8.x or later, OR
 - PlatformIO
+- [Inventronix Connect - IoT platform](https://inventronix.club/connect)
 
 ## Installation
 
