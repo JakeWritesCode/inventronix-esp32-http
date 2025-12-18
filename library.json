@@ -1,0 +1,23 @@
+{
+  "name": "Inventronix",
+  "version": "1.0.1",
+  "description": "Dead simple IoT data ingestion and device control for ESP32. Send sensor data to the cloud, receive commands back, build IoT projects without backend code.",
+  "keywords": ["iot", "esp32", "http", "inventronix", "sensor", "cloud"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JakeWritesCode/inventronix-esp32-http.git"
+  },
+  "authors": [
+    {
+      "name": "Jake Saunders",
+      "email": "jake@inventronix.club",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "dependencies": {
+    "bblanchon/ArduinoJson": "^7.0.0"
+  }
+}
