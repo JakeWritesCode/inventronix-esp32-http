@@ -123,6 +123,11 @@ private:
     bool tryReconnectWiFi(unsigned long timeoutMs = 10000);
     int sendHTTPRequest(const char* jsonPayload, String& responseBody);
 
+#ifdef INVENTRONIX_PLATFORM_RENESAS
+    // R4 WiFi requires persistent SSL client (must not be local variable)
+    WiFiSSLClient _sslClient;
+#endif
+
     // Command processing
     void processCommands(const String& responseBody);
     void dispatchCommand(const char* command, JsonObject args, const char* executionId);

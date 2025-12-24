@@ -179,17 +179,38 @@ int Inventronix::sendHTTPRequest(const char* jsonPayload, String& responseBody) 
 
 #else
     // Arduino UNO R4 WiFi / Renesas implementation using ArduinoHttpClient
-    // Parse host and path from URL
-    // URL format: https://api.inventronix.club/path
-    String host = "api.inventronix.club";
+    // R4's WiFiSSLClient has known issues - must use class member, not local variable
+    const char* host = "api.inventronix.club";
     String path = String(INVENTRONIX_INGEST_ENDPOINT);
     if (_schemaId.length() > 0) {
         path += "?schema_id=" + _schemaId;
     }
 
-    WiFiSSLClient wifiClient;
-    HttpClient http(wifiClient, host, 443);
+    // Drain any residual data and reset the client properly
+    while (_sslClient.available()) {
+        _sslClient.read();
+    }
+    if (_sslClient.connected()) {
+        _sslClient.stop();
+    }
 
+    // Explicitly connect first (R4 WiFiSSLClient quirk - helps with some servers)
+    if (_debugMode) {
+        logDebug("Connecting to " + String(host) + ":443...");
+    }
+
+    if (!_sslClient.connect(host, 443)) {
+        if (_debugMode) {
+            logDebug("SSL connection failed!");
+        }
+        return -3;  // Connection failed
+    }
+
+    if (_debugMode) {
+        logDebug("SSL connected, sending request...");
+    }
+
+    HttpClient http(_sslClient, host, 443);
     http.setTimeout(INVENTRONIX_HTTP_TIMEOUT);
 
     http.beginRequest();
@@ -209,6 +230,9 @@ int Inventronix::sendHTTPRequest(const char* jsonPayload, String& responseBody) 
     if (statusCode > 0) {
         responseBody = http.responseBody();
     }
+
+    // Clean up for next request
+    http.stop();
 
 #endif
 
@@ -314,6 +338,17 @@ bool Inventronix::connectWiFi(const char* ssid, const char* password, unsigned l
         if (_verboseLogging) {
             Serial.print(".");
         }
+    }
+
+    // Wait for DHCP to assign a valid IP (R4 WiFi module is slow)
+    while (WiFi.localIP() == IPAddress(0, 0, 0, 0)) {
+        if (millis() - startTime > timeoutMs) {
+            if (_verboseLogging) {
+                Serial.println("\nDHCP timed out");
+            }
+            return false;
+        }
+        delay(100);
     }
 
     if (_verboseLogging) {
