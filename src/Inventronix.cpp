@@ -89,7 +89,7 @@ bool Inventronix::sendPayload(const char* jsonPayload) {
 
         // Log the response details
         if (_verboseLogging && statusCode > 0) {
-            Serial.print("HTTP ");
+            Serial.print("📡 HTTP ");
             Serial.print(statusCode);
             if (responseBody.length() > 0 && responseBody.length() < 100) {
                 Serial.print(" - ");
@@ -97,7 +97,7 @@ bool Inventronix::sendPayload(const char* jsonPayload) {
             }
             Serial.println();
         } else if (_verboseLogging && statusCode <= 0) {
-            Serial.print("Request failed (error code: ");
+            Serial.print("❌ Request failed (error code: ");
             Serial.print(statusCode);
             Serial.println(")");
         }
@@ -123,7 +123,7 @@ bool Inventronix::sendPayload(const char* jsonPayload) {
             }
 
             if (_verboseLogging) {
-                Serial.print("Retrying in ");
+                Serial.print("⏳ Retrying in ");
                 Serial.print(delayMs);
                 Serial.print("ms... (attempt ");
                 Serial.print(attempt + 1);
@@ -525,7 +525,7 @@ void Inventronix::processCommands(const String& responseBody) {
     if (commandCount == 0) return;
 
     if (_verboseLogging) {
-        Serial.print("Received ");
+        Serial.print("📨 Received ");
         Serial.print(commandCount);
         Serial.println(" command(s)");
     }
@@ -587,7 +587,7 @@ void Inventronix::dispatchCommand(const char* command, JsonObject args, const ch
             }
 
             if (_verboseLogging) {
-                Serial.print("Pulsing for ");
+                Serial.print("🔄 Pulsing for ");
                 Serial.print(duration);
                 Serial.println("ms");
             }
