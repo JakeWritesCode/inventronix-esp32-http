@@ -1,6 +1,6 @@
 {
   "name": "Inventronix",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Dead simple IoT data ingestion and device control for ESP32 and Arduino UNO R4 WiFi. Send sensor data to the cloud, receive commands back, build IoT projects without backend code.",
   "keywords": ["iot", "esp32", "arduino", "uno-r4", "http", "inventronix", "sensor", "cloud"],
   "repository": {
