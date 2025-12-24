@@ -2,12 +2,24 @@
 #define INVENTRONIX_H
 
 #include <Arduino.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <Ticker.h>
 #include <ArduinoJson.h>
 #include <functional>
 #include "InventronixConfig.h"
+
+// Platform detection
+#if defined(ESP32) || defined(ESP8266)
+    #define INVENTRONIX_PLATFORM_ESP
+    #include <WiFi.h>
+    #include <WiFiClientSecure.h>
+    #include <HTTPClient.h>
+    #include <Ticker.h>
+#elif defined(ARDUINO_UNOR4_WIFI) || defined(ARDUINO_ARCH_RENESAS_UNO)
+    #define INVENTRONIX_PLATFORM_RENESAS
+    #include <WiFiS3.h>
+    #include <ArduinoHttpClient.h>
+#else
+    #error "Unsupported platform. This library requires ESP32, ESP8266, or Arduino UNO R4 WiFi."
+#endif
 
 // Max registered commands (adjust based on memory constraints)
 #define INVENTRONIX_MAX_COMMANDS 16
@@ -32,7 +44,12 @@ struct PulseHandler {
     unsigned long durationMs;   // 0 = pull from command args
     PulseOnCallback onCallback;
     PulseOffCallback offCallback;
+#ifdef INVENTRONIX_PLATFORM_ESP
     Ticker ticker;
+#else
+    unsigned long startTime;    // For millis-based timing on non-ESP platforms
+    unsigned long activeDuration;
+#endif
     bool active;                // Currently pulsing?
     bool registered;
 };
@@ -45,8 +62,15 @@ public:
     void begin(const char* projectId, const char* apiKey);
     void setSchemaId(const char* schemaId);
 
+    // WiFi management
+    bool connectWiFi(const char* ssid, const char* password, unsigned long timeoutMs = 30000);
+    bool isWiFiConnected();
+
     // Core functionality
     bool sendPayload(const char* jsonPayload);
+
+    // Call this in your loop() for pulse timing on non-ESP platforms
+    void loop();
 
     // Command registration - toggle style
     void onCommand(const char* commandName, CommandCallback callback);
@@ -77,6 +101,11 @@ private:
     bool _verboseLogging;
     bool _debugMode;
 
+    // WiFi credentials (stored for reconnection)
+    String _wifiSsid;
+    String _wifiPassword;
+    bool _wifiManaged;  // true if we're managing WiFi
+
     // Command registry
     CommandHandler _commands[INVENTRONIX_MAX_COMMANDS];
     int _commandCount;
@@ -90,7 +119,8 @@ private:
     void logError(int statusCode, const String& responseBody);
     void logSuccess();
     void logDebug(const String& message);
-    bool checkWiFi();
+    bool ensureWiFi();  // Check and reconnect if needed
+    bool tryReconnectWiFi(unsigned long timeoutMs = 10000);
     int sendHTTPRequest(const char* jsonPayload, String& responseBody);
 
     // Command processing
@@ -98,9 +128,11 @@ private:
     void dispatchCommand(const char* command, JsonObject args, const char* executionId);
     void handlePulseOff(int pulseIndex);
 
+#ifdef INVENTRONIX_PLATFORM_ESP
     // Static callback for Ticker (ESP32 Ticker doesn't support lambdas with captures)
     static Inventronix* _instance;
     static void pulseOffCallback(int pulseIndex);
+#endif
 };
 
 #endif

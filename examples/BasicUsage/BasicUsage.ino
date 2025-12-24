@@ -4,17 +4,19 @@
  * This example shows how to send data to the Inventronix platform
  * using the core library (without code generation).
  *
- * Hardware: Inventronix ESP32-C3 board
+ * Supported Hardware:
+ * - ESP32 / ESP8266
+ * - Arduino UNO R4 WiFi
  *
  * Setup:
  * 1. Install ArduinoJson library (Tools -> Manage Libraries -> Search "ArduinoJson")
- * 2. Update WiFi credentials below
- * 3. Update PROJECT_ID and API_KEY from https://inventronix.club/iot-relay/projects
- * 4. Upload to your board
- * 5. Open Serial Monitor (115200 baud) to see output
+ * 2. For Arduino UNO R4 WiFi: Install ArduinoHttpClient library
+ * 3. Update WiFi credentials below
+ * 4. Update PROJECT_ID and API_KEY from https://inventronix.club/iot-relay/projects
+ * 5. Upload to your board
+ * 6. Open Serial Monitor (115200 baud) to see output
  */
 
-#include <WiFi.h>
 #include <Inventronix.h>
 #include <ArduinoJson.h>
 
@@ -30,30 +32,21 @@
 Inventronix inventronix;
 
 void setup() {
-    // Initialize serial communication
     Serial.begin(115200);
-    delay(1000);  // Wait for serial monitor to connect
+    delay(1000);
 
     Serial.println("\n\n=================================");
     Serial.println("Inventronix Basic Usage Example");
     Serial.println("=================================\n");
 
-    // Connect to WiFi
-    Serial.print("Connecting to WiFi");
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-
-    Serial.println("\nWiFi connected");
-    Serial.print("   IP address: ");
-    Serial.println(WiFi.localIP());
-    Serial.println();
-
     // Initialize Inventronix
     inventronix.begin(PROJECT_ID, API_KEY);
+
+    // Connect to WiFi (with 30s timeout, auto-reconnect on drop)
+    if (!inventronix.connectWiFi(WIFI_SSID, WIFI_PASSWORD)) {
+        Serial.println("Failed to connect to WiFi!");
+        while (true) delay(1000);  // Halt
+    }
 
     // Optional: Configure retry behavior
     // inventronix.setRetryAttempts(5);
@@ -64,6 +57,9 @@ void setup() {
 }
 
 void loop() {
+    // Required for pulse timing on Arduino UNO R4 (no-op on ESP platforms)
+    inventronix.loop();
+
     // Create JSON payload
     JsonDocument doc;
 

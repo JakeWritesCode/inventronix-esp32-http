@@ -6,8 +6,10 @@
  * - Reporting actual hardware state back to server
  * - Using DHT11 temperature/humidity sensor
  *
- * Hardware:
- * - ESP32-C3 or similar
+ * Supported Hardware:
+ * - ESP32 / ESP8266
+ * - Arduino UNO R4 WiFi
+ * Plus:
  * - DHT11 sensor on pin 4
  * - Relay/heater control on pin 7
  *
@@ -19,7 +21,6 @@
  *    - If avg(temperature) in 5m > 22 AND last(heater_on) == true -> Turn Heater Off
  */
 
-#include <WiFi.h>
 #include <Inventronix.h>
 #include <ArduinoJson.h>
 #include "DHT.h"
@@ -48,18 +49,14 @@ void setup() {
     pinMode(HEATER_PIN, OUTPUT);
     digitalWrite(HEATER_PIN, LOW);
 
-    // Connect to WiFi
-    Serial.print("Connecting to WiFi");
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("\nWiFi connected");
-
     // Initialize Inventronix
     inventronix.begin(PROJECT_ID, API_KEY);
+
+    // Connect to WiFi (auto-reconnects on drop)
+    if (!inventronix.connectWiFi(WIFI_SSID, WIFI_PASSWORD)) {
+        Serial.println("Failed to connect to WiFi!");
+        while (true) delay(1000);
+    }
 
     // Register command handlers
     inventronix.onCommand("heater_on", [](JsonObject args) {
@@ -74,6 +71,9 @@ void setup() {
 }
 
 void loop() {
+    // Required for pulse timing on Arduino UNO R4 (no-op on ESP platforms)
+    inventronix.loop();
+
     // Read sensors
     float humidity = dht.readHumidity();
     float temperature = dht.readTemperature();

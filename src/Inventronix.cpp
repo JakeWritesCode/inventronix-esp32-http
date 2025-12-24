@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "Inventronix.h"
-#include <WiFiClientSecure.h>
 
+#ifdef INVENTRONIX_PLATFORM_ESP
 // Static instance pointer for Ticker callbacks
 Inventronix* Inventronix::_instance = nullptr;
 
@@ -11,6 +11,7 @@ void Inventronix::pulseOffCallback(int pulseIndex) {
         _instance->handlePulseOff(pulseIndex);
     }
 }
+#endif
 
 // Constructor
 Inventronix::Inventronix() {
@@ -20,6 +21,7 @@ Inventronix::Inventronix() {
     _debugMode = false;
     _commandCount = 0;
     _pulseCount = 0;
+    _wifiManaged = false;
 
     // Initialize command registry
     for (int i = 0; i < INVENTRONIX_MAX_COMMANDS; i++) {
@@ -36,11 +38,13 @@ void Inventronix::begin(const char* projectId, const char* apiKey) {
     _projectId = String(projectId);  // Convert C-string to Arduino String
     _apiKey = String(apiKey);
 
+#ifdef INVENTRONIX_PLATFORM_ESP
     // Store instance pointer for static Ticker callbacks
     _instance = this;
+#endif
 
     if (_verboseLogging) {
-        Serial.println("✅ Inventronix initialized");
+        Serial.println("Inventronix initialized");
         Serial.print("   Project ID: ");
         Serial.println(_projectId);
     }
@@ -73,8 +77,8 @@ void Inventronix::setDebugMode(bool enabled) {
 
 // Core HTTP POST with retry logic
 bool Inventronix::sendPayload(const char* jsonPayload) {
-    // Check WiFi first
-    if (!checkWiFi()) {
+    // Ensure WiFi is connected (auto-reconnect if needed)
+    if (!ensureWiFi()) {
         return false;
     }
 
@@ -129,21 +133,22 @@ bool Inventronix::sendPayload(const char* jsonPayload) {
     return false;
 }
 
-// Actual HTTP POST
+// Actual HTTP POST - platform-specific implementations
 int Inventronix::sendHTTPRequest(const char* jsonPayload, String& responseBody) {
-    HTTPClient http;
-    WiFiClientSecure client;  // Use secure client for HTTPS
-
-    // Skip SSL certificate verification (for simplicity)
-    // In production, you'd want to verify certificates
-    client.setInsecure();
-
     String url = buildURL();
 
     if (_debugMode) {
         logDebug("POST " + url);
         logDebug("Payload: " + String(jsonPayload));
     }
+
+#ifdef INVENTRONIX_PLATFORM_ESP
+    // ESP32/ESP8266 implementation using HTTPClient
+    HTTPClient http;
+    WiFiClientSecure client;
+
+    // Skip SSL certificate verification (for simplicity)
+    client.setInsecure();
 
     http.begin(client, url);
     http.setTimeout(INVENTRONIX_HTTP_TIMEOUT);
@@ -162,12 +167,48 @@ int Inventronix::sendHTTPRequest(const char* jsonPayload, String& responseBody) 
         responseBody = http.getString();
     }
 
+    http.end();
+
+#else
+    // Arduino UNO R4 WiFi / Renesas implementation using ArduinoHttpClient
+    // Parse host and path from URL
+    // URL format: https://api.inventronix.club/path
+    String host = "api.inventronix.club";
+    String path = String(INVENTRONIX_INGEST_ENDPOINT);
+    if (_schemaId.length() > 0) {
+        path += "?schema_id=" + _schemaId;
+    }
+
+    WiFiSSLClient wifiClient;
+    HttpClient http(wifiClient, host, 443);
+
+    http.setTimeout(INVENTRONIX_HTTP_TIMEOUT);
+
+    http.beginRequest();
+    http.post(path);
+    http.sendHeader("Content-Type", "application/json");
+    http.sendHeader("X-Api-Key", _apiKey);
+    http.sendHeader("X-Project-Id", _projectId);
+    http.sendHeader("User-Agent", INVENTRONIX_USER_AGENT);
+    http.sendHeader("Content-Length", strlen(jsonPayload));
+    http.beginBody();
+    http.print(jsonPayload);
+    http.endRequest();
+
+    int statusCode = http.responseStatusCode();
+
+    // Get response body
+    if (statusCode > 0) {
+        responseBody = http.responseBody();
+    }
+
+#endif
+
     if (_debugMode) {
         logDebug("Status: " + String(statusCode));
         logDebug("Response: " + responseBody);
     }
 
-    http.end();
     return statusCode;
 }
 
@@ -241,18 +282,98 @@ void Inventronix::logDebug(const String& message) {
     }
 }
 
-// Check WiFi connection
-bool Inventronix::checkWiFi() {
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("📡 WiFi not connected!");
-        Serial.println("   💡 Add this to your setup():");
-        Serial.println();
-        Serial.println("   WiFi.begin(\"your-ssid\", \"your-password\");");
-        Serial.println("   while (WiFi.status() != WL_CONNECTED) delay(500);");
-        Serial.println();
-        return false;
+// Connect to WiFi with timeout
+bool Inventronix::connectWiFi(const char* ssid, const char* password, unsigned long timeoutMs) {
+    _wifiSsid = String(ssid);
+    _wifiPassword = String(password);
+    _wifiManaged = true;
+
+    if (_verboseLogging) {
+        Serial.print("Connecting to WiFi");
     }
+
+    WiFi.begin(ssid, password);
+
+    unsigned long startTime = millis();
+    while (WiFi.status() != WL_CONNECTED) {
+        if (millis() - startTime > timeoutMs) {
+            if (_verboseLogging) {
+                Serial.println("\nWiFi connection timed out");
+            }
+            return false;
+        }
+        delay(500);
+        if (_verboseLogging) {
+            Serial.print(".");
+        }
+    }
+
+    if (_verboseLogging) {
+        Serial.println("\nWiFi connected");
+        Serial.print("   IP address: ");
+        Serial.println(WiFi.localIP());
+    }
+
     return true;
+}
+
+// Check if WiFi is connected
+bool Inventronix::isWiFiConnected() {
+    return WiFi.status() == WL_CONNECTED;
+}
+
+// Try to reconnect WiFi (shorter timeout for auto-reconnect)
+bool Inventronix::tryReconnectWiFi(unsigned long timeoutMs) {
+    if (!_wifiManaged || _wifiSsid.length() == 0) {
+        return false;  // We don't have credentials
+    }
+
+    if (_verboseLogging) {
+        Serial.println("WiFi disconnected, reconnecting...");
+    }
+
+    WiFi.disconnect();
+    delay(100);
+    WiFi.begin(_wifiSsid.c_str(), _wifiPassword.c_str());
+
+    unsigned long startTime = millis();
+    while (WiFi.status() != WL_CONNECTED) {
+        if (millis() - startTime > timeoutMs) {
+            if (_verboseLogging) {
+                Serial.println("Reconnect timed out");
+            }
+            return false;
+        }
+        delay(500);
+        if (_verboseLogging) {
+            Serial.print(".");
+        }
+    }
+
+    if (_verboseLogging) {
+        Serial.println("\nReconnected to WiFi");
+    }
+
+    return true;
+}
+
+// Ensure WiFi is connected, attempt reconnect if not
+bool Inventronix::ensureWiFi() {
+    if (WiFi.status() == WL_CONNECTED) {
+        return true;
+    }
+
+    // Try to reconnect if we have credentials
+    if (_wifiManaged) {
+        return tryReconnectWiFi();
+    }
+
+    // No credentials stored - user is managing WiFi themselves
+    if (_verboseLogging) {
+        Serial.println("WiFi not connected!");
+        Serial.println("   Use inventronix.connectWiFi(ssid, password) or connect manually");
+    }
+    return false;
 }
 
 // Build the API URL with query parameters
@@ -470,8 +591,14 @@ void Inventronix::dispatchCommand(const char* command, JsonObject args, const ch
                 _pulses[i].onCallback();
             }
 
+#ifdef INVENTRONIX_PLATFORM_ESP
             // Schedule the off using Ticker with static callback
             _pulses[i].ticker.once_ms(duration, pulseOffCallback, i);
+#else
+            // Store timing for millis-based check in loop()
+            _pulses[i].startTime = millis();
+            _pulses[i].activeDuration = duration;
+#endif
 
             // TODO: Send ack to server when endpoint exists
             // ackExecution(executionId, true);
@@ -505,4 +632,20 @@ void Inventronix::handlePulseOff(int pulseIndex) {
     }
 
     _pulses[pulseIndex].active = false;
+}
+
+// Loop method - call this in your loop() for pulse timing on non-ESP platforms
+void Inventronix::loop() {
+#ifndef INVENTRONIX_PLATFORM_ESP
+    // Check all active pulses for timeout
+    unsigned long now = millis();
+    for (int i = 0; i < _pulseCount; i++) {
+        if (_pulses[i].registered && _pulses[i].active) {
+            if (now - _pulses[i].startTime >= _pulses[i].activeDuration) {
+                handlePulseOff(i);
+            }
+        }
+    }
+#endif
+    // On ESP platforms, Ticker handles timing automatically - loop() is a no-op
 }
