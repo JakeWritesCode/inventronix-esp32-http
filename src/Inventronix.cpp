@@ -89,14 +89,17 @@ bool Inventronix::sendPayload(const char* jsonPayload) {
 
         // Log the response details
         if (_verboseLogging && statusCode > 0) {
-            Serial.printf("📡 HTTP %d", statusCode);
+            Serial.print("HTTP ");
+            Serial.print(statusCode);
             if (responseBody.length() > 0 && responseBody.length() < 100) {
                 Serial.print(" - ");
                 Serial.print(responseBody);
             }
             Serial.println();
         } else if (_verboseLogging && statusCode <= 0) {
-            Serial.printf("❌ Request failed (error code: %d)\n", statusCode);
+            Serial.print("Request failed (error code: ");
+            Serial.print(statusCode);
+            Serial.println(")");
         }
 
         // Success! (any 2xx status code)
@@ -120,8 +123,13 @@ bool Inventronix::sendPayload(const char* jsonPayload) {
             }
 
             if (_verboseLogging) {
-                Serial.printf("⏳ Retrying in %dms... (attempt %d/%d)\n",
-                             delayMs, attempt + 1, _retryAttempts);
+                Serial.print("Retrying in ");
+                Serial.print(delayMs);
+                Serial.print("ms... (attempt ");
+                Serial.print(attempt + 1);
+                Serial.print("/");
+                Serial.print(_retryAttempts);
+                Serial.println(")");
             }
             delay(delayMs);
         }
@@ -517,7 +525,9 @@ void Inventronix::processCommands(const String& responseBody) {
     if (commandCount == 0) return;
 
     if (_verboseLogging) {
-        Serial.printf("📨 Received %d command(s)\n", commandCount);
+        Serial.print("Received ");
+        Serial.print(commandCount);
+        Serial.println(" command(s)");
     }
 
     for (JsonObject cmd : commands) {
@@ -577,7 +587,9 @@ void Inventronix::dispatchCommand(const char* command, JsonObject args, const ch
             }
 
             if (_verboseLogging) {
-                Serial.printf("   🔄 Pulsing for %lums\n", duration);
+                Serial.print("Pulsing for ");
+                Serial.print(duration);
+                Serial.println("ms");
             }
 
             // Start the pulse
